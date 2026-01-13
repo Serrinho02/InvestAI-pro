@@ -13,6 +13,7 @@ from logic import (
     get_historical_portfolio_value, generate_enhanced_excel_report
 )
 from bot import run_scheduler, bot 
+from worker import run_worker
 
 # --- CONFIGURAZIONE ---
 st.set_page_config(page_title="InvestAI", layout="wide", page_icon="💎")
@@ -1178,7 +1179,7 @@ def main():
         st.title("⚙️ Impostazioni")
         
         # 1. Definizione Tabs (Aggiunto "Lista Asset")
-        tab_tg, tab_sec, tab_list = st.tabs(["🔔 Notifiche", "🔒 Sicurezza", "📋 Watchlist"])
+        tab_tg, tab_sec, tab_list = st.tabs(["🔔 Notifiche", "🔒 Sicurezza", "📋 Watchlist", "🛠️ Sistema])
         
         # --- TAB TELEGRAM ---
         with tab_tg:
@@ -1331,6 +1332,38 @@ def main():
                         except Exception as e:
                             st.error(f"Errore durante la lettura del file: {e}")
 
+            # --- NUOVA TAB: SISTEMA (Worker Manuale) ---
+            with tab_sys:
+                st.info("Gestione aggiornamenti manuali del database.")
+                
+                with st.container(border=True):
+                    st.subheader("🔄 Aggiornamento Database (Worker)")
+                    st.markdown("""
+                    Questo processo:
+                    1. Scarica i dati di mercato aggiornati da Yahoo Finance.
+                    2. Calcola indicatori e strategie per **tutti gli asset** (Watchlist + Popolari).
+                    3. Salva i risultati nel Database per la sezione "Analisi Mercato".
+                    """)
+                    
+                    st.warning("⚠️ L'operazione può richiedere diversi minuti. Non chiudere la pagina durante l'esecuzione.")
+                    
+                    if st.button("🚀 Avvia Worker Manualmente", type="primary", use_container_width=True):
+                        with st.status("🚀 Worker in esecuzione...", expanded=True) as status:
+                            try:
+                                st.write("📥 Avvio download e calcoli...")
+                                # Eseguiamo la funzione importata da worker.py
+                                run_worker()
+                                
+                                st.write("✅ Calcoli completati.")
+                                st.write("💾 Database aggiornato.")
+                                status.update(label="✅ Aggiornamento Completato!", state="complete", expanded=False)
+                                
+                                st.success("Il database è stato aggiornato con successo!")
+                                time.sleep(2)
+                            except Exception as e:
+                                status.update(label="❌ Errore", state="error")
+                                st.error(f"Si è verificato un errore durante l'esecuzione del worker: {e}")
+
             st.divider()
             
             # --- SEZIONE 3: Lista e Rimozione ---
@@ -1361,6 +1394,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
