@@ -1,0 +1,13 @@
+streamlit
+pandas
+yfinance
+pandas_ta
+plotly
+psycopg2-binary
+pyTelegramBotAPI
+schedule
+requests
+st-supabase-connection
+passlib
+bcrypt
+xlsxwriter
