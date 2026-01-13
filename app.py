@@ -1366,70 +1366,79 @@ def main():
         with tab_sys:
             st.info("Gestione aggiornamenti manuali del database.")
             
-            # Inizializzazione Stato
+            # --- INIZIALIZZAZIONE STATO ---
             if 'worker_running' not in st.session_state:
                 st.session_state.worker_running = False
             if 'worker_progress' not in st.session_state:
                 st.session_state.worker_progress = 0.0
             if 'worker_status' not in st.session_state:
-                st.session_state.worker_status = "In attesa..."
+                st.session_state.worker_status = "Pronto all'avvio."
             if 'worker_stop_event' not in st.session_state:
                 st.session_state.worker_stop_event = None
 
             with st.container(border=True):
-                st.subheader("🔄 Aggiornamento Database (Worker)")
+                st.subheader("🔄 Aggiornamento Database")
                 
                 c_info1, c_info2 = st.columns(2)
-                c_info1.markdown("**Velocità stimata:** ~280 asset/min")
-                c_info2.markdown("**Target:** Tutti gli asset (Watchlist + Popolari)")
-
+                c_info1.markdown(f"**Velocità:** ~300 asset/min (Multithread)")
+                
+                # BARRA DI PROGRESSO E STATO
+                # È importante mostrare la barra PRIMA dei controlli per vederla aggiornarsi
                 prog_bar = st.progress(st.session_state.worker_progress)
                 status_text = st.empty()
-                status_text.text(st.session_state.worker_status)
+                status_text.code(st.session_state.worker_status)
 
                 c_start, c_stop = st.columns([1, 1])
                 
+                # --- LOGICA AVVIO ---
                 if not st.session_state.worker_running:
-                    if c_start.button("🚀 Avvia Worker", type="primary", use_container_width=True):
+                    if c_start.button("🚀 Avvia Aggiornamento", type="primary", use_container_width=True):
                         st.session_state.worker_running = True
                         st.session_state.worker_stop_event = threading.Event()
                         st.session_state.worker_progress = 0.0
-                        st.session_state.worker_status = "🚀 Avvio in corso..."
+                        st.session_state.worker_status = "🚀 Inizializzazione..."
                         
+                        # Funzione Thread
                         def run_worker_thread(stop_event):
                             try:
+                                # Funzione callback interna
                                 def update_ui(pct, text):
                                     st.session_state.worker_progress = pct
                                     st.session_state.worker_status = text
                                 
+                                # Chiama il nuovo worker ottimizzato
                                 run_worker(progress_callback=update_ui, stop_event=stop_event)
                                 
                             except Exception as e:
-                                st.session_state.worker_status = f"❌ Errore: {str(e)}"
+                                st.session_state.worker_status = f"❌ Errore critico: {str(e)}"
                             finally:
                                 st.session_state.worker_running = False
                         
+                        # Avvia Thread
                         t = threading.Thread(target=run_worker_thread, args=(st.session_state.worker_stop_event,))
                         t.start()
                         st.rerun()
+
+                # --- LOGICA STOP ---
                 else:
                     if c_stop.button("🛑 Interrompi", type="secondary", use_container_width=True):
                         if st.session_state.worker_stop_event:
                             st.session_state.worker_stop_event.set()
-                        st.warning("Interruzione richiesta...")
+                        st.warning("Arresto in corso... attendere fine batch.")
 
+                # --- AUTO-REFRESH ---
+                # Questo blocco ricarica la pagina finché il worker gira per aggiornare la barra
                 if st.session_state.worker_running:
-                    time.sleep(1)
+                    time.sleep(1.5) # Refresh rate (1.5s è un buon compromesso)
                     st.rerun()
                 
-                prog_bar.progress(st.session_state.worker_progress)
-                status_text.text(st.session_state.worker_status)
-
+                # Aggiornamento finale stato visivo
                 if st.session_state.worker_progress >= 1.0:
-                    st.success("✅ Procedura Completata!")
+                    st.success("✅ Database aggiornato con successo!")
 
 if __name__ == "__main__":
     main()
+
 
 
 
