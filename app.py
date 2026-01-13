@@ -16,7 +16,7 @@ from bot import run_scheduler, bot
 from worker import run_worker
 
 # --- CONFIGURAZIONE ---
-st.set_page_config(page_title="InvestAI", layout="wide", page_icon="💎")
+st.set_page_config(page_title="InvestAI-PRO", layout="wide", page_icon="💎")
 
 # --- AVVIO BOT ---
 @st.cache_resource
@@ -1394,6 +1394,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
