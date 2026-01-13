@@ -143,14 +143,68 @@ def process_batch(tickers):
         except Exception as e:
             logger.error(f"Errore DB Upsert: {e}")
 
-def run_worker():
+def run_worker(progress_callback=None, stop_event=None):
+    """
+    Esegue il worker con supporto per la GUI di Streamlit.
+    :param progress_callback: Funzione che accetta (percentuale 0-1, testo_status)
+    :param stop_event: Oggetto threading.Event per fermare l'esecuzione
+    """
     all_tickers = get_all_unique_tickers()
-    if not all_tickers: return
-    logger.info(f"🚀 START WORKER - {len(all_tickers)} Asset totali")
+    total_assets = len(all_tickers)
     
-    for i in range(0, len(all_tickers), BATCH_SIZE):
-        process_batch(all_tickers[i:i + BATCH_SIZE])
-        time.sleep(2)
+    if not all_tickers: 
+        logger.warning("Nessun asset trovato.")
+        return
+
+    logger.info(f"🚀 START WORKER - {total_assets} Asset totali")
+    
+    start_time = time.time()
+    processed_count = 0
+    
+    # Parametri per la stima del tempo
+    avg_time_per_batch = 0
+    
+    for i in range(0, total_assets, BATCH_SIZE):
+        # 1. Controllo Interruzione Manuale
+        if stop_event and stop_event.is_set():
+            logger.info("🛑 Worker interrotto dall'utente.")
+            if progress_callback:
+                progress_callback(processed_count / total_assets, "⛔ Interrotto dall'utente.")
+            return
+
+        batch_start = time.time()
+        batch = all_tickers[i:i + BATCH_SIZE]
+        
+        # 2. Aggiornamento GUI (Inizio Batch)
+        if progress_callback:
+            pct = i / total_assets
+            # Stima tempo rimanente
+            elapsed = time.time() - start_time
+            if i > 0:
+                rate = i / elapsed # asset al secondo
+                remaining_assets = total_assets - i
+                eta_seconds = remaining_assets / rate if rate > 0 else 0
+                eta_str = f"{int(eta_seconds // 60)}m {int(eta_seconds % 60)}s"
+            else:
+                eta_str = "Calcolo..."
+            
+            progress_callback(pct, f"⏳ Elaborazione batch {i//BATCH_SIZE + 1}... (ETA: {eta_str})")
+
+        # 3. Processamento
+        process_batch(batch)
+        
+        processed_count += len(batch)
+        
+        # 4. Pausa Anti-Ban (importante per Yahoo)
+        time.sleep(2) 
+
+    # Fine
+    total_time = time.time() - start_time
+    logger.info(f"🏁 FINE WORKER. Tempo totale: {total_time/60:.2f} minuti.")
+    
+    if progress_callback:
+        progress_callback(1.0, f"✅ Completato! {total_assets} asset in {total_time/60:.1f} min.")
 
 if __name__ == "__main__":
+
     run_worker()
