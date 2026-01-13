@@ -1179,7 +1179,7 @@ def main():
         st.title("⚙️ Impostazioni")
         
         # 1. Definizione Tabs (Aggiunto "Lista Asset")
-        tab_tg, tab_sec, tab_list = st.tabs(["🔔 Notifiche", "🔒 Sicurezza", "📋 Watchlist", "🛠️ Sistema])
+        tab_tg, tab_sec, tab_list, tab_sys = st.tabs(["🔔 Notifiche", "🔒 Sicurezza", "📋 Watchlist", "🛠️ Sistema])
         
         # --- TAB TELEGRAM ---
         with tab_tg:
@@ -1394,6 +1394,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
