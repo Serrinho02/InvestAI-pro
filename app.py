@@ -1332,86 +1332,6 @@ def main():
                         except Exception as e:
                             st.error(f"Errore durante la lettura del file: {e}")
 
-        # --- NUOVA TAB: SISTEMA (Worker Manuale Avanzato) ---
-        with tab_sys:
-            st.info("Gestione aggiornamenti manuali del database.")
-            
-            # --- INIZIALIZZAZIONE STATO ---
-            if 'worker_running' not in st.session_state:
-                st.session_state.worker_running = False
-            if 'worker_progress' not in st.session_state:
-                st.session_state.worker_progress = 0.0
-            if 'worker_status' not in st.session_state:
-                st.session_state.worker_status = "In attesa..."
-            if 'worker_stop_event' not in st.session_state:
-                st.session_state.worker_stop_event = None
-
-            with st.container(border=True):
-                st.subheader("🔄 Aggiornamento Database (Worker)")
-                
-                # Layout metriche statiche
-                c_info1, c_info2 = st.columns(2)
-                c_info1.markdown("**Velocità stimata:** ~280 asset/min")
-                c_info2.markdown("**Target:** Tutti gli asset (Watchlist + Popolari)")
-
-                # BARRA DI PROGRESSO E STATO
-                prog_bar = st.progress(st.session_state.worker_progress)
-                status_text = st.empty()
-                status_text.text(st.session_state.worker_status)
-
-                # BOTTONI DI CONTROLLO
-                c_start, c_stop = st.columns([1, 1])
-                
-                # --- LOGICA AVVIO ---
-                if not st.session_state.worker_running:
-                    if c_start.button("🚀 Avvia Worker", type="primary", use_container_width=True):
-                        st.session_state.worker_running = True
-                        st.session_state.worker_stop_event = threading.Event()
-                        st.session_state.worker_progress = 0.0
-                        st.session_state.worker_status = "🚀 Avvio in corso..."
-                        
-                        # Funzione che gira nel thread separato
-                        def run_worker_thread(stop_event):
-                            try:
-                                # Funzione di callback per aggiornare la UI
-                                # Nota: Streamlit non supporta aggiornamenti UI diretti da thread secondari
-                                # in modo nativo perfetto, ma scrivendo in session_state funziona al rerun.
-                                def update_ui(pct, text):
-                                    st.session_state.worker_progress = pct
-                                    st.session_state.worker_status = text
-                                
-                                # Lancia il worker modificato
-                                run_worker(progress_callback=update_ui, stop_event=stop_event)
-                                
-                            except Exception as e:
-                                st.session_state.worker_status = f"❌ Errore: {str(e)}"
-                            finally:
-                                st.session_state.worker_running = False
-                        
-                        # Avvia il thread
-                        t = threading.Thread(target=run_worker_thread, args=(st.session_state.worker_stop_event,))
-                        t.start()
-                        st.rerun()
-
-                # --- LOGICA STOP ---
-                else:
-                    if c_stop.button("🛑 Interrompi", type="secondary", use_container_width=True):
-                        if st.session_state.worker_stop_event:
-                            st.session_state.worker_stop_event.set() # Segnala al worker di fermarsi
-                        st.warning("Richiesta di interruzione inviata... attendere la fine del batch corrente.")
-
-                # --- AUTO-REFRESH PER VEDERE L'AVANZAMENTO ---
-                if st.session_state.worker_running:
-                    time.sleep(1) # Aggiorna ogni secondo
-                    st.rerun()
-                
-                # Aggiorna visivamente i widget all'uscita dal blocco if
-                prog_bar.progress(st.session_state.worker_progress)
-                status_text.text(st.session_state.worker_status)
-
-                if st.session_state.worker_progress >= 1.0:
-                    st.success("✅ Procedura Completata!")
-
             st.divider()
             
             # --- SEZIONE 3: Lista e Rimozione ---
@@ -1440,30 +1360,76 @@ def main():
                     db.init_default_watchlist(user)
                     st.rerun()
 
+        # ----------------------------
+        # TAB 4: SISTEMA (Worker Manuale)
+        # ----------------------------
+        with tab_sys:
+            st.info("Gestione aggiornamenti manuali del database.")
+            
+            # Inizializzazione Stato
+            if 'worker_running' not in st.session_state:
+                st.session_state.worker_running = False
+            if 'worker_progress' not in st.session_state:
+                st.session_state.worker_progress = 0.0
+            if 'worker_status' not in st.session_state:
+                st.session_state.worker_status = "In attesa..."
+            if 'worker_stop_event' not in st.session_state:
+                st.session_state.worker_stop_event = None
+
+            with st.container(border=True):
+                st.subheader("🔄 Aggiornamento Database (Worker)")
+                
+                c_info1, c_info2 = st.columns(2)
+                c_info1.markdown("**Velocità stimata:** ~280 asset/min")
+                c_info2.markdown("**Target:** Tutti gli asset (Watchlist + Popolari)")
+
+                prog_bar = st.progress(st.session_state.worker_progress)
+                status_text = st.empty()
+                status_text.text(st.session_state.worker_status)
+
+                c_start, c_stop = st.columns([1, 1])
+                
+                if not st.session_state.worker_running:
+                    if c_start.button("🚀 Avvia Worker", type="primary", use_container_width=True):
+                        st.session_state.worker_running = True
+                        st.session_state.worker_stop_event = threading.Event()
+                        st.session_state.worker_progress = 0.0
+                        st.session_state.worker_status = "🚀 Avvio in corso..."
+                        
+                        def run_worker_thread(stop_event):
+                            try:
+                                def update_ui(pct, text):
+                                    st.session_state.worker_progress = pct
+                                    st.session_state.worker_status = text
+                                
+                                run_worker(progress_callback=update_ui, stop_event=stop_event)
+                                
+                            except Exception as e:
+                                st.session_state.worker_status = f"❌ Errore: {str(e)}"
+                            finally:
+                                st.session_state.worker_running = False
+                        
+                        t = threading.Thread(target=run_worker_thread, args=(st.session_state.worker_stop_event,))
+                        t.start()
+                        st.rerun()
+                else:
+                    if c_stop.button("🛑 Interrompi", type="secondary", use_container_width=True):
+                        if st.session_state.worker_stop_event:
+                            st.session_state.worker_stop_event.set()
+                        st.warning("Interruzione richiesta...")
+
+                if st.session_state.worker_running:
+                    time.sleep(1)
+                    st.rerun()
+                
+                prog_bar.progress(st.session_state.worker_progress)
+                status_text.text(st.session_state.worker_status)
+
+                if st.session_state.worker_progress >= 1.0:
+                    st.success("✅ Procedura Completata!")
+
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
