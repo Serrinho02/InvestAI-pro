@@ -1,0 +1,16 @@
+[client]
+toolbarMode = "viewer"  # Nasconde la toolbar sviluppatore (rerun, settings)
+showErrorDetails = false    # Se c'è un errore, mostra solo "Error" senza codice tecnico
+
+[theme]
+base = "light"          # Forza il tema scuro (opzionale, ma professionale)
+primaryColor = "#8bc7f0"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#262730"
+
+[browser]
+gatherUsageStats = false # Disabilita invio statistiche
+
+[ui]
+hideTopBar = true           # Nasconde la barra colorata superiore (funziona solo in alcuni casi)
