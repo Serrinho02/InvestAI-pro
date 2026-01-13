@@ -1332,7 +1332,7 @@ def main():
                         except Exception as e:
                             st.error(f"Errore durante la lettura del file: {e}")
 
-# --- NUOVA TAB: SISTEMA (Worker Manuale Avanzato) ---
+        # --- NUOVA TAB: SISTEMA (Worker Manuale Avanzato) ---
         with tab_sys:
             st.info("Gestione aggiornamenti manuali del database.")
             
@@ -1442,6 +1442,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
