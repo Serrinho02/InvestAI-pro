@@ -1332,37 +1332,85 @@ def main():
                         except Exception as e:
                             st.error(f"Errore durante la lettura del file: {e}")
 
-            # --- NUOVA TAB: SISTEMA (Worker Manuale) ---
-            with tab_sys:
-                st.info("Gestione aggiornamenti manuali del database.")
+# --- NUOVA TAB: SISTEMA (Worker Manuale Avanzato) ---
+        with tab_sys:
+            st.info("Gestione aggiornamenti manuali del database.")
+            
+            # --- INIZIALIZZAZIONE STATO ---
+            if 'worker_running' not in st.session_state:
+                st.session_state.worker_running = False
+            if 'worker_progress' not in st.session_state:
+                st.session_state.worker_progress = 0.0
+            if 'worker_status' not in st.session_state:
+                st.session_state.worker_status = "In attesa..."
+            if 'worker_stop_event' not in st.session_state:
+                st.session_state.worker_stop_event = None
+
+            with st.container(border=True):
+                st.subheader("🔄 Aggiornamento Database (Worker)")
                 
-                with st.container(border=True):
-                    st.subheader("🔄 Aggiornamento Database (Worker)")
-                    st.markdown("""
-                    Questo processo:
-                    1. Scarica i dati di mercato aggiornati da Yahoo Finance.
-                    2. Calcola indicatori e strategie per **tutti gli asset** (Watchlist + Popolari).
-                    3. Salva i risultati nel Database per la sezione "Analisi Mercato".
-                    """)
-                    
-                    st.warning("⚠️ L'operazione può richiedere diversi minuti. Non chiudere la pagina durante l'esecuzione.")
-                    
-                    if st.button("🚀 Avvia Worker Manualmente", type="primary", use_container_width=True):
-                        with st.status("🚀 Worker in esecuzione...", expanded=True) as status:
+                # Layout metriche statiche
+                c_info1, c_info2 = st.columns(2)
+                c_info1.markdown("**Velocità stimata:** ~280 asset/min")
+                c_info2.markdown("**Target:** Tutti gli asset (Watchlist + Popolari)")
+
+                # BARRA DI PROGRESSO E STATO
+                prog_bar = st.progress(st.session_state.worker_progress)
+                status_text = st.empty()
+                status_text.text(st.session_state.worker_status)
+
+                # BOTTONI DI CONTROLLO
+                c_start, c_stop = st.columns([1, 1])
+                
+                # --- LOGICA AVVIO ---
+                if not st.session_state.worker_running:
+                    if c_start.button("🚀 Avvia Worker", type="primary", use_container_width=True):
+                        st.session_state.worker_running = True
+                        st.session_state.worker_stop_event = threading.Event()
+                        st.session_state.worker_progress = 0.0
+                        st.session_state.worker_status = "🚀 Avvio in corso..."
+                        
+                        # Funzione che gira nel thread separato
+                        def run_worker_thread(stop_event):
                             try:
-                                st.write("📥 Avvio download e calcoli...")
-                                # Eseguiamo la funzione importata da worker.py
-                                run_worker()
+                                # Funzione di callback per aggiornare la UI
+                                # Nota: Streamlit non supporta aggiornamenti UI diretti da thread secondari
+                                # in modo nativo perfetto, ma scrivendo in session_state funziona al rerun.
+                                def update_ui(pct, text):
+                                    st.session_state.worker_progress = pct
+                                    st.session_state.worker_status = text
                                 
-                                st.write("✅ Calcoli completati.")
-                                st.write("💾 Database aggiornato.")
-                                status.update(label="✅ Aggiornamento Completato!", state="complete", expanded=False)
+                                # Lancia il worker modificato
+                                run_worker(progress_callback=update_ui, stop_event=stop_event)
                                 
-                                st.success("Il database è stato aggiornato con successo!")
-                                time.sleep(2)
                             except Exception as e:
-                                status.update(label="❌ Errore", state="error")
-                                st.error(f"Si è verificato un errore durante l'esecuzione del worker: {e}")
+                                st.session_state.worker_status = f"❌ Errore: {str(e)}"
+                            finally:
+                                st.session_state.worker_running = False
+                        
+                        # Avvia il thread
+                        t = threading.Thread(target=run_worker_thread, args=(st.session_state.worker_stop_event,))
+                        t.start()
+                        st.rerun()
+
+                # --- LOGICA STOP ---
+                else:
+                    if c_stop.button("🛑 Interrompi", type="secondary", use_container_width=True):
+                        if st.session_state.worker_stop_event:
+                            st.session_state.worker_stop_event.set() # Segnala al worker di fermarsi
+                        st.warning("Richiesta di interruzione inviata... attendere la fine del batch corrente.")
+
+                # --- AUTO-REFRESH PER VEDERE L'AVANZAMENTO ---
+                if st.session_state.worker_running:
+                    time.sleep(1) # Aggiorna ogni secondo
+                    st.rerun()
+                
+                # Aggiorna visivamente i widget all'uscita dal blocco if
+                prog_bar.progress(st.session_state.worker_progress)
+                status_text.text(st.session_state.worker_status)
+
+                if st.session_state.worker_progress >= 1.0:
+                    st.success("✅ Procedura Completata!")
 
             st.divider()
             
@@ -1394,6 +1442,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
