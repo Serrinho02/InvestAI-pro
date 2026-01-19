@@ -6,6 +6,7 @@ import pandas as pd
 import threading
 import time
 import numpy as np
+from datetime import datetime, date, timedelta, timezone
 
 from logic import (
     DBManager, get_data_raw, evaluate_strategy_full, generate_portfolio_advice, 
@@ -13,10 +14,9 @@ from logic import (
     get_historical_portfolio_value, generate_enhanced_excel_report
 )
 from bot import run_scheduler, bot 
-from worker import run_worker
 
 # --- CONFIGURAZIONE ---
-st.set_page_config(page_title="InvestAI-PRO", layout="wide", page_icon="💎")
+st.set_page_config(page_title="InvestAI", layout="wide", page_icon="💎")
 
 # --- AVVIO BOT ---
 @st.cache_resource
@@ -327,41 +327,93 @@ def main():
 
         with st.expander("🤖 Scansione Automatica (Database Powered)", expanded=True):
             
-            # --- 1. SELETTORE MODALITÀ ---
-            c_mode, c_btn = st.columns([2, 1])
+            # --- 1. FILTRI DI RICERCA (UI) ---
+            c_mode, c_filter, c_btn = st.columns([1.5, 1.5, 1])
+            
             with c_mode:
                 scan_mode = st.radio(
-                    "Ambito di Ricerca:",
-                    ["👤 Solo la mia Watchlist", "🌍 Tutto il Mercato (Discovery)"],
+                    "Ambito:",
+                    ["👤 Solo la mia Watchlist", "🌍 Tutto il Mercato"],
                     horizontal=True,
                     label_visibility="collapsed"
                 )
             
+            with c_filter:
+                time_filter = st.selectbox(
+                    "🕒 Freschezza Dati:",
+                    ["Tutti i dati", "Oggi (da mezzanotte)", "Ultime 4 Ore", "Ultime 24 Ore"],
+                    label_visibility="collapsed"
+                )
+            
             with c_btn:
-                btn_scan = st.button("🔎 Avvia Scansione", use_container_width=True)
+                btn_scan = st.button("🔎 Cerca Opportunità", use_container_width=True)
 
             if btn_scan:
-                with st.spinner(f"Analisi in corso ({scan_mode})..."):
+                with st.spinner(f"Analisi in corso..."):
                     
-                    # 1. FETCH DATI COMPLETI (Snapshot veloce)
+                    # 1. FETCH DATI
                     analysis_data = db.get_analysis_snapshot()
                     
                     if not analysis_data:
-                        st.error("Nessun dato trovato nel Database. Esegui il worker.py.")
+                        st.error("Nessun dato trovato nel Database. Esegui il worker.")
                     else:
-                        # Preparo la lista dei MIEI ticker per il filtro
                         my_tickers = list(user_watchlist_dict.values())
-                        
                         opportunities = []
                         
+                        # Definiamo il "Cutoff" (La data minima accettabile) in UTC
+                        now_utc = datetime.now(timezone.utc)
+                        cutoff_time = None
+                        
+                        if time_filter == "Oggi (da mezzanotte)":
+                            cutoff_time = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+                        elif time_filter == "Ultime 4 Ore":
+                            cutoff_time = now_utc - timedelta(hours=4)
+                        elif time_filter == "Ultime 24 Ore":
+                            cutoff_time = now_utc - timedelta(hours=24)
+                        
+                        # --- CICLO FILTRAGGIO ---
                         for row in analysis_data:
-                            # --- 2. FILTRO CONDIZIONALE ---
-                            # Se l'utente ha scelto "Solo la mia Watchlist", scarta i ticker non presenti
+                            
+                            # A. FILTRO WATCHLIST
                             if scan_mode == "👤 Solo la mia Watchlist":
                                 if row['symbol'] not in my_tickers:
                                     continue
                             
-                            # Filtro operativo (solo azioni interessanti)
+                            # B. PARSING DATA & FILTRO TEMPORALE (CORRETTO)
+                            raw_date = row.get('updated_at')
+                            asset_dt = None
+                            date_str = "N/A"
+                            
+                            if raw_date:
+                                try:
+                                    # 1. Conversione in Datetime object
+                                    if isinstance(raw_date, str):
+                                        # Se è stringa (es. dal JSON), converti
+                                        asset_dt = datetime.fromisoformat(raw_date.replace('Z', '+00:00'))
+                                    elif isinstance(raw_date, datetime):
+                                        # Se è già datetime (dal driver DB), usalo diretto
+                                        asset_dt = raw_date
+                                    
+                                    # 2. NORMALIZZAZIONE TIMEZONE (Il Fix dell'errore)
+                                    if asset_dt:
+                                        # Se la data non ha timezone (naive), le assegniamo UTC forzatamente
+                                        if asset_dt.tzinfo is None:
+                                            asset_dt = asset_dt.replace(tzinfo=timezone.utc)
+                                        
+                                        # Formattazione per visualizzazione
+                                        date_str = asset_dt.strftime("%d/%m %H:%M")
+
+                                except Exception as e:
+                                    # In caso di errore estremo, fallback
+                                    date_str = str(raw_date)[:16]
+                            
+                            # 3. APPLICAZIONE FILTRO
+                            # Ora entrambe le date sono "aware" (hanno timezone), quindi il confronto funziona
+                            if cutoff_time:
+                                if not asset_dt or asset_dt < cutoff_time:
+                                    continue
+
+                            # C. FILTRO OPERATIVO
                             act = row.get('action', '')
                             if act and any(x in act for x in ["ACQUISTA", "ORO", "VENDI", "RISCHIOSO"]):
                                 priority = 3 if "ORO" in act else (2 if "ACQUISTA" in act else 1)
@@ -379,17 +431,22 @@ def main():
                                     "target": row['target'],
                                     "potential": row['potential'],
                                     "risk_pot": row['risk_pot'],
-                                    "w30": row['w30'], "p30": row['p30'], "w60": row['w60'], 
-                                    "p60": row['p60'], "w90": row['w90'], "p90": row['p90'],
-                                    "confidence": row['confidence']
+                                    "w30": row['w30'], "p30": row['p30'], 
+                                    "w60": row.get('w60', 0), "p60": row.get('p60', 0),
+                                    "w90": row['w90'], "p90": row['p90'],
+                                    "confidence": row['confidence'],
+                                    "updated_at": date_str
                                 })
                     
                     if opportunities:
                         opportunities = sorted(opportunities, key=lambda x: (x['priority'], x['confidence']), reverse=True)
                         
+                        # Messaggio riassuntivo
+                        msg_time = f" ({time_filter})" if time_filter != "Tutti i dati" else ""
+                        st.success(f"Trovate {len(opportunities)} opportunità recenti{msg_time}.")
+                        
                         if any("ORO" in o['action'] for o in opportunities):
                             st.balloons()
-                            st.success("💎 TROVATA UN'OPPORTUNITÀ D'ORO!")
 
                         cols_rec = st.columns(3)
                         for idx, opp in enumerate(opportunities):
@@ -431,11 +488,14 @@ def main():
                                     </div>
                                     <div style="text-align:right; font-size:0.8rem; margin-top:4px; color:#555;">
                                         Prezzo: ${opp['price']:.2f} | RSI: {opp['rsi']:.0f}
+                                        <div style="font-size:0.65rem; color:#666; margin-top:2px; font-style:italic;">
+                                            🕒 Agg: {opp['updated_at']}
+                                        </div>
                                     </div>
                                 </div>
                                 """, unsafe_allow_html=True)
                     else:
-                        st.info("Nessun segnale forte rilevato")
+                        st.info(f"Nessun segnale rilevato con i filtri attuali ({time_filter}).")
 
         st.divider()
         st.subheader("🔎 Analisi Singolo Asset")
@@ -1179,7 +1239,7 @@ def main():
         st.title("⚙️ Impostazioni")
         
         # 1. Definizione Tabs (Aggiunto "Lista Asset")
-        tab_tg, tab_sec, tab_list, tab_sys = st.tabs(["🔔 Notifiche", "🔒 Sicurezza", "📋 Watchlist", "🛠️ Sistema"])
+        tab_tg, tab_sec, tab_list = st.tabs(["🔔 Notifiche", "🔒 Sicurezza", "📋 Watchlist"])
         
         # --- TAB TELEGRAM ---
         with tab_tg:
@@ -1360,104 +1420,5 @@ def main():
                     db.init_default_watchlist(user)
                     st.rerun()
 
-        # ----------------------------
-        # TAB 4: SISTEMA (Worker Manuale)
-        # ----------------------------
-        with tab_sys:
-            st.info("Gestione aggiornamenti manuali del database.")
-            
-            # --- INIZIALIZZAZIONE STATO ---
-            if 'worker_running' not in st.session_state:
-                st.session_state.worker_running = False
-            if 'worker_progress' not in st.session_state:
-                st.session_state.worker_progress = 0.0
-            if 'worker_status' not in st.session_state:
-                st.session_state.worker_status = "Pronto all'avvio."
-            if 'worker_stop_event' not in st.session_state:
-                st.session_state.worker_stop_event = None
-
-            with st.container(border=True):
-                st.subheader("🔄 Aggiornamento Database")
-                
-                c_info1, c_info2 = st.columns(2)
-                c_info1.markdown(f"**Velocità:** ~300 asset/min (Multithread)")
-                
-                # BARRA DI PROGRESSO E STATO
-                # È importante mostrare la barra PRIMA dei controlli per vederla aggiornarsi
-                prog_bar = st.progress(st.session_state.worker_progress)
-                status_text = st.empty()
-                status_text.code(st.session_state.worker_status)
-
-                c_start, c_stop = st.columns([1, 1])
-                
-                # --- LOGICA AVVIO ---
-                if not st.session_state.worker_running:
-                    if c_start.button("🚀 Avvia Aggiornamento", type="primary", use_container_width=True):
-                        st.session_state.worker_running = True
-                        st.session_state.worker_stop_event = threading.Event()
-                        st.session_state.worker_progress = 0.0
-                        st.session_state.worker_status = "🚀 Inizializzazione..."
-                        
-                        # Funzione Thread
-                        def run_worker_thread(stop_event):
-                            try:
-                                # Funzione callback interna
-                                def update_ui(pct, text):
-                                    st.session_state.worker_progress = pct
-                                    st.session_state.worker_status = text
-                                
-                                # Chiama il nuovo worker ottimizzato
-                                run_worker(progress_callback=update_ui, stop_event=stop_event)
-                                
-                            except Exception as e:
-                                st.session_state.worker_status = f"❌ Errore critico: {str(e)}"
-                            finally:
-                                st.session_state.worker_running = False
-                        
-                        # Avvia Thread
-                        t = threading.Thread(target=run_worker_thread, args=(st.session_state.worker_stop_event,))
-                        t.start()
-                        st.rerun()
-
-                # --- LOGICA STOP ---
-                else:
-                    if c_stop.button("🛑 Interrompi", type="secondary", use_container_width=True):
-                        if st.session_state.worker_stop_event:
-                            st.session_state.worker_stop_event.set()
-                        st.warning("Arresto in corso... attendere fine batch.")
-
-                # --- AUTO-REFRESH ---
-                # Questo blocco ricarica la pagina finché il worker gira per aggiornare la barra
-                if st.session_state.worker_running:
-                    time.sleep(1.5) # Refresh rate (1.5s è un buon compromesso)
-                    st.rerun()
-                
-                # Aggiornamento finale stato visivo
-                if st.session_state.worker_progress >= 1.0:
-                    st.success("✅ Database aggiornato con successo!")
-
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
